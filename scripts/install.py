@@ -37,6 +37,11 @@ def main() -> int:
         help="Allow replacement of an existing non-distribution profile while preserving its config",
     )
     parser.add_argument("--start-gateway", action="store_true")
+    parser.add_argument(
+        "--skip-activation",
+        action="store_true",
+        help="Install the isolated K1-K1 profile without creating cron routines or starting a gateway",
+    )
     args = parser.parse_args()
 
     if not shutil.which("hermes"):
@@ -135,6 +140,10 @@ def main() -> int:
 
         if preserved_config is not None:
             (profile_home / "config.yaml").write_text(preserved_config, encoding="utf-8")
+
+    if args.skip_activation:
+        print(f"Installed Agent K1-K1 profile at {profile_home}. Autonomous routines were not enabled.")
+        return 0
 
     activate = profile_home / "scripts" / "activate.py"
     if not activate.exists():
