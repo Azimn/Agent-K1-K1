@@ -38,7 +38,7 @@ cd Agent-K1-K1
 python scripts/install.py --start-gateway
 ```
 
-The installer creates an isolated `agent-k1k1` profile by cloning the currently working Hermes provider and tool configuration, then installs Kiki's distribution into that profile while removing inherited `MEMORY.md` and `USER.md` files.
+The installer creates an isolated `agent-k1k1` profile by cloning the currently working Hermes provider and tool configuration, then installs Kiki's distribution into that profile while removing inherited `MEMORY.md` and `USER.md` files. A second Hermes installation is not required. Current Hermes profile support is specifically designed for multiple independent agents on one machine.
 
 Verify:
 
@@ -48,6 +48,8 @@ hermes -p agent-k1k1 cron status
 hermes -p agent-k1k1 cron list
 agent-k1k1 chat
 ```
+
+When `--start-gateway` is used, activation supports both Hermes gateway layouts: older per-profile gateways and the newer multiplexed default gateway. In multiplex mode, Kiki remains a separate profile with separate credentials and state. Messaging platforms still need Kiki-specific bot credentials rather than Pretorius's token.
 
 For a completely fresh profile:
 
