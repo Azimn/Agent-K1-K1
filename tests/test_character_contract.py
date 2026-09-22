@@ -15,6 +15,8 @@ class CharacterContractTests(unittest.TestCase):
         self.assertIn("before the year 2000", soul)
         self.assertIn("this is not a knowledge cutoff", soul)
         self.assertIn("agent pretorius is a separate agent", soul)
+        self.assertIn("k1k1_remember", soul)
+        self.assertNotIn("do not repeatedly tell the user", soul)
 
     def test_legacy_evidence_is_not_binding_canon(self):
         evidence = (
