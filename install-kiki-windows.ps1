@@ -31,7 +31,8 @@ $SourceRoot = Join-Path $KikiRoot "source"
 $StagingRoot = Join-Path $KikiRoot "staging"
 $ZipPath = Join-Path $KikiRoot "Agent-K1-K1.zip"
 $KikiBranch = "feat/k1k1-v0.1"
-$KikiZipUrl = "https://github.com/Azimn/Agent-K1-K1/archive/refs/heads/$KikiBranch.zip"
+$KikiCommitApi = "https://api.github.com/repos/Azimn/Agent-K1-K1/commits/$KikiBranch"
+$KikiZipUrl = $null
 $HermesInstallerUrl = "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1"
 
 New-Item -ItemType Directory -Force -Path $KikiRoot | Out-Null
@@ -74,7 +75,18 @@ if (-not (Test-Path $DefaultConfig)) {
     }
 }
 
-Write-Step "Downloading the Kiki v0.1 candidate."
+Write-Step "Resolving the latest tested Kiki v0.1 candidate."
+try {
+    $KikiCommit = (Invoke-RestMethod -Uri $KikiCommitApi -Headers @{ "User-Agent" = "K1-K1-Windows-Installer" }).sha
+    if (-not $KikiCommit) { throw "GitHub did not return a commit SHA." }
+    $KikiZipUrl = "https://github.com/Azimn/Agent-K1-K1/archive/$KikiCommit.zip"
+    Write-Host "Kiki source commit: $KikiCommit"
+}
+catch {
+    Stop-WithHelp "Could not resolve the current Kiki branch from GitHub: $($_.Exception.Message)"
+}
+
+Write-Step "Downloading Kiki."
 try {
     Invoke-WebRequest -Uri $KikiZipUrl -OutFile $ZipPath
 }
