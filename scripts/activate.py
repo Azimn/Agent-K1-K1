@@ -153,6 +153,53 @@ def create_routines(profile: str, root: Path, deliver: str) -> dict[str, str]:
     return results
 
 
+def ensure_gateway(profile: str) -> dict[str, str]:
+    """Support both per-profile gateways and newer multiplexed Hermes gateways."""
+    profile_install = run(hermes_prefix(profile) + ["gateway", "install"], check=False)
+    combined = ((profile_install.stdout or "") + "\n" + (profile_install.stderr or "")).strip()
+    lowered = combined.lower()
+
+    if profile_install.returncode == 0:
+        restart = run(hermes_prefix(profile) + ["gateway", "restart"], check=False)
+        if restart.returncode != 0:
+            raise RuntimeError(restart.stderr or restart.stdout)
+        return {
+            "mode": "per-profile",
+            "status": "installed and restarted",
+        }
+
+    multiplex_required = (
+        profile_install.returncode == 78
+        or "does not get a gateway of its own" in lowered
+        or "multiplex" in lowered
+    )
+    if not multiplex_required:
+        raise RuntimeError(combined or "Hermes gateway installation failed")
+
+    set_mux = run(
+        ["hermes", "-p", "default", "config", "set", "gateway.multiplex_profiles", "true"],
+        check=False,
+    )
+    if set_mux.returncode != 0:
+        raise RuntimeError(
+            "Hermes requires a multiplexed host gateway, but enabling "
+            f"gateway.multiplex_profiles failed: {set_mux.stderr or set_mux.stdout}"
+        )
+
+    host_install = run(["hermes", "-p", "default", "gateway", "install"], check=False)
+    if host_install.returncode != 0:
+        raise RuntimeError(host_install.stderr or host_install.stdout)
+
+    restart = run(["hermes", "-p", "default", "gateway", "restart"], check=False)
+    if restart.returncode != 0:
+        raise RuntimeError(restart.stderr or restart.stdout)
+
+    return {
+        "mode": "multiplexed-default",
+        "status": "enabled multiplex_profiles; installed and restarted default gateway",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Activate Agent K1-K1 autonomous Hermes routines")
     parser.add_argument("--profile", default="agent-k1k1")
@@ -164,7 +211,7 @@ def main() -> int:
     parser.add_argument(
         "--install-gateway",
         action="store_true",
-        help="Install/restart the Hermes user gateway after activation",
+        help="Install/restart the appropriate Hermes gateway after activation",
     )
     args = parser.parse_args()
 
@@ -176,15 +223,12 @@ def main() -> int:
     config_result = ensure_config(args.profile, root)
     routines = create_routines(args.profile, root, args.deliver)
 
-    gateway = "unchanged"
+    gateway: object = "unchanged"
     if args.install_gateway:
-        proc = run(["hermes", "gateway", "install"], check=False)
-        if proc.returncode != 0:
-            raise RuntimeError(proc.stderr or proc.stdout)
-        restart = run(["hermes", "gateway", "restart"], check=False)
-        gateway = "restarted" if restart.returncode == 0 else "installed; restart reported an error"
+        gateway = ensure_gateway(args.profile)
 
     status = run(hermes_prefix(args.profile) + ["cron", "status"], check=False)
+    gateway_list = run(["hermes", "gateway", "list"], check=False)
     print(
         json.dumps(
             {
@@ -195,6 +239,7 @@ def main() -> int:
                 "routines": routines,
                 "gateway": gateway,
                 "cron_status": (status.stdout or status.stderr).strip(),
+                "gateway_list": (gateway_list.stdout or gateway_list.stderr).strip(),
             },
             indent=2,
         )
