@@ -142,7 +142,7 @@ try {
     }
 
     Write-Step "Installing Kiki as an isolated Hermes profile."
-    & $PythonExe "scripts\install.py" --source $SourceRoot --profile "agent-k1k1" --skip-activation
+    & $PythonExe "scripts\install.py" --source $SourceRoot --profile "agent-k1k1" --replace-existing --skip-activation
     if ($LASTEXITCODE -ne 0) {
         Stop-WithHelp "The isolated Kiki profile could not be installed."
     }
