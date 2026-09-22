@@ -11,7 +11,7 @@ class CharacterContractTests(unittest.TestCase):
         soul = (ROOT / "SOUL.md").read_text(encoding="utf-8").lower()
         self.assertIn("k1-k1", soul)
         self.assertIn("artificial intelligence", soul)
-        self.assertIn("supportiveness and agreement", soul)
+        self.assertIn("helpfulness is part of your personality, not a command to agree with everything", soul)
         self.assertIn("before the year 2000", soul)
         self.assertIn("this is not a knowledge cutoff", soul)
         self.assertIn("agent pretorius is a separate agent", soul)
