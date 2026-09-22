@@ -1,5 +1,19 @@
 # Agent K1-K1
 
+## Easiest Windows install
+
+For native Windows 10 or 11, the development branch includes a guided installer that can install Hermes Agent if needed, run Kiki's checks, create the isolated `agent-k1k1` profile, and optionally enable background autonomy.
+
+Open PowerShell and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/Azimn/Agent-K1-K1/feat/k1k1-v0.1/install-kiki-windows.ps1 | iex
+```
+
+Administrator rights are not required for the official Hermes native Windows installer.
+
+The script leaves background autonomy off by default until you explicitly choose to enable it. This prevents unattended model usage during the first validation. It offers to start the first Kiki chat after installation.
+
 Agent K1-K1, usually called Kiki, is a persistent Hermes-based general assistant, collaborator, and long-term companion agent.
 
 The project deliberately shares architectural ideas with [Agent Pretorius](https://github.com/Azimn/Agent-Pretorius) while keeping the two individuals completely separate. They may use the same Hermes installation, but Kiki has her own profile, identity files, persistent database, knowledge library, learned skills, cron routines, work directory, and future history.
