@@ -1,5 +1,5 @@
 name: agent-k1k1
-version: 0.1.0
+version: 0.1.1
 description: "Persistent Hermes-based Kiki general assistant and long-term collaborator"
 hermes_requires: ">=0.21.3"
 author: "Azimn"
