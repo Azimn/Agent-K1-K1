@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -21,14 +22,25 @@ def remove_inherited_memory(profile_home: Path) -> None:
                 path.unlink()
 
 
-def sync_identity_files(source: str, profile_home: Path) -> None:
-    source_path = Path(source).expanduser()
-    if not source_path.exists() or not source_path.is_dir():
-        return
-    for name in ("SOUL.md", "AGENTS.md", "profile.yaml", "distribution.yaml"):
-        src = source_path / name
-        if src.exists():
-            shutil.copy2(src, profile_home / name)
+def install_payload(source: str, profile: str, profile_home: Path) -> None:
+    """Reinstall the requested source, including distributions with lost provenance.
+
+    Hermes 0.21.3 --force preserves user data but replaces config.yaml. Restore
+    the existing config even on failure. Let Hermes write the resolved manifest;
+    copying the source's distribution.yaml afterward erases its source metadata.
+    """
+    config = profile_home / "config.yaml"
+    preserved = config.read_bytes() if config.exists() else None
+    cmd = ["hermes", "profile", "install", source, "--name", profile, "--yes"]
+    if profile_home.exists():
+        cmd.append("--force")
+    try:
+        proc = run(cmd, check=False)
+        if proc.returncode != 0:
+            raise SystemExit(proc.stderr or proc.stdout)
+    finally:
+        if preserved is not None:
+            config.write_bytes(preserved)
 
 
 def main() -> int:
@@ -57,98 +69,32 @@ def main() -> int:
     if not shutil.which("hermes"):
         raise SystemExit("Hermes CLI not found on PATH.")
 
-    hermes_home = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", args.profile) or args.profile == "default":
+        raise SystemExit("Use a named profile ID, not default or a filesystem path.")
+    default_home = (
+        Path(os.environ["LOCALAPPDATA"]) / "hermes"
+        if os.name == "nt" and os.environ.get("LOCALAPPDATA")
+        else Path.home() / ".hermes"
+    )
+    hermes_home = Path(os.environ.get("HERMES_HOME", str(default_home))).expanduser()
     profile_home = hermes_home / "profiles" / args.profile
-    distribution_marker = profile_home / "distribution.yaml"
-
-    if profile_home.exists() and distribution_marker.exists():
-        proc = run(["hermes", "profile", "update", args.profile, "--yes"], check=False)
-        if proc.returncode != 0:
-            raise SystemExit(proc.stderr or proc.stdout)
-    elif profile_home.exists():
-        if not args.replace_existing:
+    if profile_home.is_symlink():
+        raise SystemExit("Refusing to replace a symlinked profile.")
+    if profile_home.exists():
+        if not (profile_home / "distribution.yaml").exists() and not args.replace_existing:
             raise SystemExit(
                 f"Profile '{args.profile}' already exists but is not a distribution. "
                 "Choose another --profile name or re-run with --replace-existing."
             )
-        preserved_config = (
-            (profile_home / "config.yaml").read_text(encoding="utf-8")
-            if (profile_home / "config.yaml").exists()
-            else None
-        )
-        remove_inherited_memory(profile_home)
-        proc = run(
-            [
-                "hermes",
-                "profile",
-                "install",
-                args.source,
-                "--name",
-                args.profile,
-                "--alias",
-                "--yes",
-                "--force",
-            ],
-            check=False,
-        )
-        if proc.returncode != 0:
-            raise SystemExit(proc.stderr or proc.stdout)
-        if preserved_config is not None:
-            (profile_home / "config.yaml").write_text(preserved_config, encoding="utf-8")
-    elif args.fresh:
-        proc = run(
-            [
-                "hermes",
-                "profile",
-                "install",
-                args.source,
-                "--name",
-                args.profile,
-                "--alias",
-                "--yes",
-            ],
-            check=False,
-        )
-        if proc.returncode != 0:
-            raise SystemExit(proc.stderr or proc.stdout)
-        print(
-            f"Installed Agent K1-K1 into a fresh profile at {profile_home}.\n"
-            f"If this profile still needs model/provider configuration, run: hermes -p {args.profile} setup"
-        )
-    else:
-        create = run(["hermes", "profile", "create", args.profile, "--clone"], check=False)
+    elif not args.fresh:
+        # Only a just-created clone has inherited memory. Never erase memories
+        # from an existing Kiki profile on an upgrade or repair.
+        create = run(["hermes", "profile", "create", args.profile, "--clone-from", "default", "--no-alias"], check=False)
         if create.returncode != 0:
             raise SystemExit(create.stderr or create.stdout)
-
-        preserved_config = (
-            (profile_home / "config.yaml").read_text(encoding="utf-8")
-            if (profile_home / "config.yaml").exists()
-            else None
-        )
         remove_inherited_memory(profile_home)
 
-        proc = run(
-            [
-                "hermes",
-                "profile",
-                "install",
-                args.source,
-                "--name",
-                args.profile,
-                "--alias",
-                "--yes",
-                "--force",
-            ],
-            check=False,
-        )
-        if proc.returncode != 0:
-            raise SystemExit(proc.stderr or proc.stdout)
-
-        if preserved_config is not None:
-            (profile_home / "config.yaml").write_text(preserved_config, encoding="utf-8")
-
-    sync_identity_files(args.source, profile_home)
-    remove_inherited_memory(profile_home)
+    install_payload(args.source, args.profile, profile_home)
 
     activate = profile_home / "scripts" / "activate.py"
     if not activate.exists():

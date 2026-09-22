@@ -1,6 +1,7 @@
 param(
     [switch]$EnableAutonomy,
-    [switch]$NoChat
+    [switch]$NoChat,
+    [string]$SourcePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +29,7 @@ $HermesHome = Join-Path $env:LOCALAPPDATA "hermes"
 $HermesExe = Join-Path $HermesHome "bin\hermes.exe"
 $KikiRoot = Join-Path $env:LOCALAPPDATA "K1-K1"
 $SourceRoot = Join-Path $KikiRoot "source"
-$StagingRoot = Join-Path $KikiRoot "staging"
+$StagingRoot = Join-Path $KikiRoot ("staging\" + [guid]::NewGuid().ToString("N"))
 $ZipPath = Join-Path $KikiRoot "Agent-K1-K1.zip"
 $KikiBranch = "feat/k1k1-v0.1"
 $KikiCommitApi = "https://api.github.com/repos/Azimn/Agent-K1-K1/commits/$KikiBranch"
@@ -75,6 +76,13 @@ if (-not (Test-Path $DefaultConfig)) {
     }
 }
 
+if ($SourcePath) {
+    $SourceRoot = (Resolve-Path -LiteralPath $SourcePath).Path
+    if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot "distribution.yaml"))) {
+        Stop-WithHelp "SourcePath must contain distribution.yaml."
+    }
+}
+else {
 Write-Step "Resolving the latest tested Kiki v0.1 candidate."
 try {
     $KikiCommit = (Invoke-RestMethod -Uri $KikiCommitApi -Headers @{ "User-Agent" = "K1-K1-Windows-Installer" }).sha
@@ -94,9 +102,6 @@ catch {
     Stop-WithHelp "Could not download Agent K1-K1 from GitHub: $($_.Exception.Message)"
 }
 
-if (Test-Path $StagingRoot) {
-    Remove-Item -Recurse -Force $StagingRoot
-}
 New-Item -ItemType Directory -Force -Path $StagingRoot | Out-Null
 
 Write-Step "Preparing Kiki's source package."
@@ -113,10 +118,17 @@ if (-not $Extracted) {
 }
 
 if (Test-Path $SourceRoot) {
-    Remove-Item -Recurse -Force $SourceRoot
+    # Keep local development edits recoverable; never recursively delete source.
+    $ResolvedSource = [IO.Path]::GetFullPath($SourceRoot)
+    $ExpectedSource = [IO.Path]::GetFullPath((Join-Path $KikiRoot "source"))
+    if ($ResolvedSource -ne $ExpectedSource) { Stop-WithHelp "Unexpected source path." }
+    $SourceBackup = Join-Path $KikiRoot ("source-backup-" + [guid]::NewGuid().ToString("N"))
+    Move-Item -LiteralPath $ResolvedSource -Destination $SourceBackup
 }
 New-Item -ItemType Directory -Force -Path $SourceRoot | Out-Null
 Copy-Item -Path (Join-Path $Extracted.FullName "*") -Destination $SourceRoot -Recurse -Force
+
+}
 
 $PythonCandidates = @(
     (Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"),
@@ -178,10 +190,6 @@ Write-Host ""
 Write-Host "Background autonomy is OFF by default so the first test cannot spend model credits while unattended."
 
 $ShouldEnable = $EnableAutonomy
-if (-not $EnableAutonomy) {
-    $Answer = Read-Host "Enable Kiki's hourly pulse, nightly reflection, daily brief, and login gateway now? Type Y to enable, or press Enter to leave them off"
-    $ShouldEnable = ($Answer -match "^[Yy]")
-}
 
 if ($ShouldEnable) {
     Write-Step "Enabling Kiki's bounded background routines and gateway."

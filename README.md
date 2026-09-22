@@ -52,7 +52,17 @@ cd Agent-K1-K1
 python scripts/install.py --start-gateway
 ```
 
-The installer creates an isolated `agent-k1k1` profile by cloning the currently working Hermes provider and tool configuration, then installs Kiki's distribution into that profile while removing inherited `MEMORY.md` and `USER.md` files. A second Hermes installation is not required. Current Hermes profile support is specifically designed for multiple independent agents on one machine.
+The installer creates an isolated `agent-k1k1` profile by cloning the default Hermes provider and tool configuration. Only a newly created clone has inherited `MEMORY.md` and `USER.md` removed. Existing Kiki memories and local state are preserved on repair and upgrade. A second Hermes installation is not required.
+
+Repeated installs use the requested source with Hermes's supported forced reinstall, including profiles whose distribution marker has lost its recorded source. Existing `config.yaml` is restored byte-for-byte after payload installation, even on failure; core activation then reapplies Kiki's working directory and plugin settings. Hermes owns the installed manifest's `source` and `installed_at` fields; the installer must not overwrite that manifest afterward.
+
+For a local Windows checkout, repair or repeat installation without downloading over development edits:
+
+```powershell
+.\install-kiki-windows.ps1 -SourcePath . -NoChat
+```
+
+Core activation always runs. Background routines and gateway installation require the explicit `-EnableAutonomy` switch in the Windows installer. Existing routines are not disabled by reinstalling. The download path retains the previous source directory as a `source-backup-*` sibling instead of deleting it. Hermes is installed only when absent; an existing Hermes installation is not updated.
 
 Verify:
 
