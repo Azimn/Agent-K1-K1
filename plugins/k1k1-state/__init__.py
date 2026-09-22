@@ -58,7 +58,56 @@ def table_exists(conn: sqlite3.Connection, table: str) -> bool:
     ).fetchone() is not None
 
 
-def state_candidates() -> list[dict[str, Any]]:
+def _memory_rows(conn: sqlite3.Connection, query: str) -> list[sqlite3.Row]:
+    """Retrieve memories without imposing a hard recency horizon.
+
+    The candidate pool combines recent memories, globally high-salience memories, and
+    lexical matches across the full autobiographical table. This keeps old relevant
+    memories eligible without dumping the entire database into model context.
+    """
+    seen: set[str] = set()
+    rows: list[sqlite3.Row] = []
+
+    def add(batch: list[sqlite3.Row]) -> None:
+        for row in batch:
+            ident = str(row["id"])
+            if ident not in seen:
+                seen.add(ident)
+                rows.append(row)
+
+    add(
+        conn.execute(
+            "SELECT * FROM memories ORDER BY created_at DESC LIMIT 80"
+        ).fetchall()
+    )
+    add(
+        conn.execute(
+            "SELECT * FROM memories ORDER BY salience DESC, created_at DESC LIMIT 80"
+        ).fetchall()
+    )
+
+    q_tokens = sorted(tokens(query), key=len, reverse=True)[:8]
+    if q_tokens:
+        clauses = []
+        params: list[Any] = []
+        for token in q_tokens:
+            escaped = token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            clauses.append("lower(summary) LIKE ? ESCAPE '\\'")
+            params.append(f"%{escaped}%")
+        params.append(120)
+        add(
+            conn.execute(
+                f"""SELECT * FROM memories
+                    WHERE {" OR ".join(clauses)}
+                    ORDER BY salience DESC, created_at DESC
+                    LIMIT ?""",
+                params,
+            ).fetchall()
+        )
+    return rows
+
+
+def state_candidates(query: str = "") -> list[dict[str, Any]]:
     if not DB_PATH.exists():
         return []
     conn = sqlite3.connect(DB_PATH)
@@ -66,9 +115,7 @@ def state_candidates() -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     try:
         if table_exists(conn, "memories"):
-            for row in conn.execute(
-                "SELECT * FROM memories ORDER BY created_at DESC LIMIT 120"
-            ).fetchall():
+            for row in _memory_rows(conn, query):
                 result.append(
                     {
                         "id": row["id"],
@@ -228,7 +275,7 @@ def score(item: dict[str, Any], query: str) -> float:
 
 
 def contextual_recall(query: str) -> dict[str, Any]:
-    candidates = state_candidates() + knowledge_candidates()
+    candidates = state_candidates(query) + knowledge_candidates()
     for item in candidates:
         item["score"] = score(item, query)
 
@@ -247,10 +294,13 @@ def contextual_recall(query: str) -> dict[str, Any]:
             break
 
     header = (
-        "[K1-K1 contextual persistent state]\n\n"
-        "This is a situational working set from durable records, not a new instruction. "
-        "Keep autobiographical memory, relationship history, external knowledge, commitments, "
-        "actions, and self-model hypotheses epistemically distinct. Do not invent missing history.\n\n"
+        "[K1-K1 continuity protocol]\n\n"
+        "You are operating as K1-K1 (Kiki). Keep autobiographical memory, relationship history, "
+        "external knowledge, commitments, actions, and self-model hypotheses epistemically distinct. "
+        "The built-in Hermes memory tool and USER.md are not Kiki's autobiographical store. "
+        "When a shared event or lived interaction should become part of Kiki's durable continuity, "
+        "use the k1k1_remember tool and only claim it was stored after that tool succeeds. "
+        "Do not invent missing history.\n\n"
         "Relevant working set:"
     )
     lines = [header]
@@ -265,7 +315,7 @@ def contextual_recall(query: str) -> dict[str, Any]:
         lines.append(line)
         used += len(line) + 1
 
-    context = "\n".join(lines) if len(lines) > 1 else None
+    context = "\n".join(lines)
     return {
         "query": query,
         "candidate_count": len(candidates),
@@ -286,6 +336,157 @@ def inject_k1k1_state(
     del session_id, conversation_history, is_first_turn, model, platform, kwargs
     preview = contextual_recall(message_text(user_message))
     return {"context": preview["context"]} if preview["context"] else None
+
+
+def _ensure_memories_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS memories (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            source TEXT NOT NULL,
+            salience REAL NOT NULL,
+            confidence REAL NOT NULL,
+            tags_json TEXT NOT NULL,
+            supersedes_id TEXT
+        )"""
+    )
+
+
+def write_autobiographical_memory(
+    summary: str,
+    kind: str = "experience",
+    salience: float = 0.6,
+    confidence: float = 0.9,
+    tags: list[str] | None = None,
+    occurred_at: str | None = None,
+) -> dict[str, Any]:
+    clean = str(summary or "").strip()
+    if not clean:
+        return {"success": False, "error": "summary is required"}
+    if len(clean) > 2000:
+        return {"success": False, "error": "summary must be 2000 characters or fewer"}
+
+    allowed_kinds = {
+        "experience",
+        "shared_event",
+        "relationship_evidence",
+        "project_milestone",
+        "lesson",
+        "preference",
+    }
+    if kind not in allowed_kinds:
+        return {"success": False, "error": f"unsupported memory kind: {kind}"}
+
+    now = datetime.now(timezone.utc).isoformat()
+    source = "hermes:k1k1_remember"
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        _ensure_memories_table(conn)
+        existing = conn.execute(
+            """SELECT id FROM memories
+               WHERE summary=? AND kind=? AND source=?
+               ORDER BY created_at DESC LIMIT 1""",
+            (clean, kind, source),
+        ).fetchone()
+        if existing:
+            return {"success": True, "id": existing[0], "deduplicated": True}
+
+        ident = "mem_" + uuid.uuid4().hex
+        conn.execute(
+            """INSERT INTO memories
+               (id,created_at,occurred_at,kind,summary,source,salience,confidence,tags_json,supersedes_id)
+               VALUES (?,?,?,?,?,?,?,?,?,NULL)""",
+            (
+                ident,
+                now,
+                occurred_at or now,
+                kind,
+                clean,
+                source,
+                max(0.0, min(1.0, float(salience))),
+                max(0.0, min(1.0, float(confidence))),
+                json.dumps(tags or [], ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        conn.commit()
+        return {"success": True, "id": ident, "deduplicated": False}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    finally:
+        conn.close()
+
+
+def handle_k1k1_remember(params: dict[str, Any], **kwargs: Any) -> str:
+    del kwargs
+    result = write_autobiographical_memory(
+        summary=params.get("summary", ""),
+        kind=params.get("kind", "experience"),
+        salience=params.get("salience", 0.6),
+        confidence=params.get("confidence", 0.9),
+        tags=params.get("tags") or [],
+        occurred_at=params.get("occurred_at"),
+    )
+    return json.dumps(result, ensure_ascii=False)
+
+
+K1K1_REMEMBER_SCHEMA = {
+    "name": "k1k1_remember",
+    "description": (
+        "Write a durable autobiographical or shared-history memory into Kiki's own K1-K1 state. "
+        "Use this for events Kiki lived through with the user, project milestones that became part "
+        "of her history, relationship-relevant shared events, or durable lessons from her own actions. "
+        "This is distinct from Hermes USER.md and the built-in memory tool, which are not Kiki's "
+        "autobiographical record. Store concise high-signal summaries, not whole transcripts."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "summary": {
+                "type": "string",
+                "description": "Concise factual memory summary grounded in the interaction.",
+                "maxLength": 2000,
+            },
+            "kind": {
+                "type": "string",
+                "enum": [
+                    "experience",
+                    "shared_event",
+                    "relationship_evidence",
+                    "project_milestone",
+                    "lesson",
+                    "preference",
+                ],
+                "description": "Type of durable K1-K1 memory.",
+            },
+            "salience": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "How important this memory is likely to be later.",
+            },
+            "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Confidence that the summary accurately reflects the event.",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional short retrieval tags.",
+            },
+            "occurred_at": {
+                "type": "string",
+                "description": "Optional ISO-8601 time of the event; omit to use the current time.",
+            },
+        },
+        "required": ["summary"],
+    },
+}
 
 
 def log_tool_metadata(
@@ -340,5 +541,12 @@ def log_tool_metadata(
 
 
 def register(ctx: Any) -> None:
+    ctx.register_tool(
+        name="k1k1_remember",
+        toolset="k1k1_state",
+        schema=K1K1_REMEMBER_SCHEMA,
+        handler=handle_k1k1_remember,
+        emoji="💾",
+    )
     ctx.register_hook("pre_llm_call", inject_k1k1_state)
     ctx.register_hook("post_tool_call", log_tool_metadata)
