@@ -95,3 +95,18 @@ python scripts/preview_recall.py "We need to continue the project we discussed l
 v0.1 establishes the persistent architecture, strict Pretorius isolation, character foundation, contextual recall, knowledge separation, bounded autonomy, and installation path.
 
 Historical Kiki conversations and LoRA training material can be added later as provenance-rich identity and voice evidence without redesigning the persistence layer.
+
+
+## Testing the development branch
+
+Until v0.1 is merged to `main`, test directly from the feature branch so the installer uses the local checkout rather than the still-empty default branch:
+
+```bash
+git clone -b feat/k1k1-v0.1 https://github.com/Azimn/Agent-K1-K1.git
+cd Agent-K1-K1
+python scripts/readiness.py
+python -m unittest discover -s tests -v
+python scripts/install.py --source . --start-gateway
+```
+
+Using `--source .` is important while testing an unmerged branch.
