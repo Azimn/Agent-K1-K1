@@ -16,9 +16,19 @@ def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
 
 def remove_inherited_memory(profile_home: Path) -> None:
     for name in ("MEMORY.md", "USER.md"):
-        path = profile_home / "memories" / name
-        if path.exists():
-            path.unlink()
+        for path in (profile_home / name, profile_home / "memories" / name):
+            if path.exists():
+                path.unlink()
+
+
+def sync_identity_files(source: str, profile_home: Path) -> None:
+    source_path = Path(source).expanduser()
+    if not source_path.exists() or not source_path.is_dir():
+        return
+    for name in ("SOUL.md", "AGENTS.md", "profile.yaml", "distribution.yaml"):
+        src = source_path / name
+        if src.exists():
+            shutil.copy2(src, profile_home / name)
 
 
 def main() -> int:
@@ -103,12 +113,8 @@ def main() -> int:
             raise SystemExit(proc.stderr or proc.stdout)
         print(
             f"Installed Agent K1-K1 into a fresh profile at {profile_home}.\n"
-            f"Run: hermes -p {args.profile} setup\n"
-            f"Then run: {sys.executable} {profile_home / 'scripts' / 'activate.py'} "
-            f"--profile {args.profile} --deliver {args.deliver}"
-            + (" --install-gateway" if args.start_gateway else "")
+            f"If this profile still needs model/provider configuration, run: hermes -p {args.profile} setup"
         )
-        return 0
     else:
         create = run(["hermes", "profile", "create", args.profile, "--clone"], check=False)
         if create.returncode != 0:
@@ -141,9 +147,8 @@ def main() -> int:
         if preserved_config is not None:
             (profile_home / "config.yaml").write_text(preserved_config, encoding="utf-8")
 
-    if args.skip_activation:
-        print(f"Installed Agent K1-K1 profile at {profile_home}. Autonomous routines were not enabled.")
-        return 0
+    sync_identity_files(args.source, profile_home)
+    remove_inherited_memory(profile_home)
 
     activate = profile_home / "scripts" / "activate.py"
     if not activate.exists():
@@ -157,9 +162,14 @@ def main() -> int:
         "--deliver",
         args.deliver,
     ]
+    if args.skip_activation:
+        cmd.append("--skip-routines")
     if args.start_gateway:
         cmd.append("--install-gateway")
-    return subprocess.run(cmd).returncode
+    result = subprocess.run(cmd)
+    if result.returncode == 0 and args.skip_activation:
+        print(f"Installed and initialized Agent K1-K1 core at {profile_home}. Background routines remain off.")
+    return result.returncode
 
 
 if __name__ == "__main__":
