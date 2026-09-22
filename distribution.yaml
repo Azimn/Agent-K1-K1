@@ -1,0 +1,21 @@
+name: agent-k1k1
+version: 0.1.0
+description: "Persistent Hermes-based Kiki general assistant and long-term collaborator"
+hermes_requires: ">=0.21.4"
+author: "Azimn"
+license: "MIT"
+distribution_owned:
+  - SOUL.md
+  - AGENTS.md
+  - profile.yaml
+  - config.yaml
+  - skills/
+  - plugins/
+  - cron/
+  - runtime/
+  - scripts/
+  - resources/
+  - docs/
+  - tests/
+  - README.md
+  - distribution.yaml
