@@ -213,6 +213,11 @@ def main() -> int:
         action="store_true",
         help="Install/restart the appropriate Hermes gateway after activation",
     )
+    parser.add_argument(
+        "--skip-routines",
+        action="store_true",
+        help="Initialize Kiki core state, working directory, and plugin without creating background cron routines",
+    )
     args = parser.parse_args()
 
     if not shutil.which("hermes"):
@@ -221,7 +226,7 @@ def main() -> int:
     root = Path(__file__).resolve().parent.parent
     runtime_result = initialize_runtime(root)
     config_result = ensure_config(args.profile, root)
-    routines = create_routines(args.profile, root, args.deliver)
+    routines = {} if args.skip_routines else create_routines(args.profile, root, args.deliver)
 
     gateway: object = "unchanged"
     if args.install_gateway:
