@@ -1,0 +1,4 @@
+name: k1k1-state
+version: 0.1.0
+description: Contextual persistent-state recall and tool-outcome metadata for Agent K1-K1
+entrypoint: __init__.py
