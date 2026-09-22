@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -41,7 +42,8 @@ def main() -> int:
     if not shutil.which("hermes"):
         raise SystemExit("Hermes CLI not found on PATH.")
 
-    profile_home = Path.home() / ".hermes" / "profiles" / args.profile
+    hermes_home = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
+    profile_home = hermes_home / "profiles" / args.profile
     distribution_marker = profile_home / "distribution.yaml"
 
     if profile_home.exists() and distribution_marker.exists():
