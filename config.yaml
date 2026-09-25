@@ -1,0 +1,16 @@
+cron:
+  max_parallel_jobs: 1
+  allow_agent_scheduling: false
+  mirror_delivery: true
+  script_timeout_seconds: 1800
+
+goals:
+  max_turns: 12
+
+loops:
+  max_ticks: 48
+  self_paced_floor_seconds: 60
+  self_paced_ceiling_seconds: 900
+
+agent:
+  clarify_timeout: 300
